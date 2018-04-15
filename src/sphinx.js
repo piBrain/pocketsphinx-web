@@ -1,3 +1,4 @@
+/* global importScripts, Module */
 'use strict';
 
 //Imports:
@@ -6,11 +7,9 @@ var AudioRecorder   = require('./util/audio-recorder');
 var CallbackManager = require('./util/callback-manager');
 var getMicrophone   = require('./util/get-microphone');
 
-
 //Constructor
 function Sphinx(path_to_workers){
   this.path_to_workers = path_to_workers || './worker';
-
   this._callbackManager = new CallbackManager();
   this.recorder         = this._startRecorder();
   this.recognizer       = this._startRecognizer();
@@ -59,6 +58,14 @@ Sphinx.prototype.addWords = function(words) {
       command: 'addWords',
       data:    words
     }));
+};
+
+Sphinx.prototype.processExistingChunk = (inputBuffer) => {
+    return this.recognizer
+        .then(this._postMessage({
+            command: 'processBuffer',
+            data: { data: [], buffer: buffer }
+        }));
 };
 // This adds a grammar to the recognizer
 Sphinx.prototype.addGrammar = function(grammar) {

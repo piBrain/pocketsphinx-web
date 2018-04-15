@@ -18,7 +18,7 @@
 
 
   //Create a new sphinx instance, which loads the web-worker scripts from '/sphinx/worker'.
-  var sphinx = new Sphinx('/sphinx/worker');
+  var sphinx = new Sphinx('./sphinx/worker');
 
   //Configure sphinx to listen for the words above, and use the grammar
   sphinx.configure(words, grammar)

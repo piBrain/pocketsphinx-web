@@ -1,4 +1,4 @@
-(function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 'use strict';
 
 var Sphinx = require('./src/sphinx');
@@ -18,41 +18,165 @@ var Sphinx = require('./src/sphinx');
 
 },{"./src/sphinx":4}],2:[function(require,module,exports){
 // shim for using process in browser
-
 var process = module.exports = {};
+
+// cached from whatever global is present so that test runners that stub it
+// don't break things.  But we need to wrap it in a try catch in case it is
+// wrapped in strict mode code which doesn't define any globals.  It's inside a
+// function because try/catches deoptimize in certain engines.
+
+var cachedSetTimeout;
+var cachedClearTimeout;
+
+function defaultSetTimout() {
+    throw new Error('setTimeout has not been defined');
+}
+function defaultClearTimeout () {
+    throw new Error('clearTimeout has not been defined');
+}
+(function () {
+    try {
+        if (typeof setTimeout === 'function') {
+            cachedSetTimeout = setTimeout;
+        } else {
+            cachedSetTimeout = defaultSetTimout;
+        }
+    } catch (e) {
+        cachedSetTimeout = defaultSetTimout;
+    }
+    try {
+        if (typeof clearTimeout === 'function') {
+            cachedClearTimeout = clearTimeout;
+        } else {
+            cachedClearTimeout = defaultClearTimeout;
+        }
+    } catch (e) {
+        cachedClearTimeout = defaultClearTimeout;
+    }
+} ())
+function runTimeout(fun) {
+    if (cachedSetTimeout === setTimeout) {
+        //normal enviroments in sane situations
+        return setTimeout(fun, 0);
+    }
+    // if setTimeout wasn't available but was latter defined
+    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
+        cachedSetTimeout = setTimeout;
+        return setTimeout(fun, 0);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedSetTimeout(fun, 0);
+    } catch(e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
+            return cachedSetTimeout.call(null, fun, 0);
+        } catch(e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
+            return cachedSetTimeout.call(this, fun, 0);
+        }
+    }
+
+
+}
+function runClearTimeout(marker) {
+    if (cachedClearTimeout === clearTimeout) {
+        //normal enviroments in sane situations
+        return clearTimeout(marker);
+    }
+    // if clearTimeout wasn't available but was latter defined
+    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
+        cachedClearTimeout = clearTimeout;
+        return clearTimeout(marker);
+    }
+    try {
+        // when when somebody has screwed with setTimeout but no I.E. maddness
+        return cachedClearTimeout(marker);
+    } catch (e){
+        try {
+            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
+            return cachedClearTimeout.call(null, marker);
+        } catch (e){
+            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
+            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
+            return cachedClearTimeout.call(this, marker);
+        }
+    }
+
+
+
+}
 var queue = [];
 var draining = false;
+var currentQueue;
+var queueIndex = -1;
+
+function cleanUpNextTick() {
+    if (!draining || !currentQueue) {
+        return;
+    }
+    draining = false;
+    if (currentQueue.length) {
+        queue = currentQueue.concat(queue);
+    } else {
+        queueIndex = -1;
+    }
+    if (queue.length) {
+        drainQueue();
+    }
+}
 
 function drainQueue() {
     if (draining) {
         return;
     }
+    var timeout = runTimeout(cleanUpNextTick);
     draining = true;
-    var currentQueue;
+
     var len = queue.length;
     while(len) {
         currentQueue = queue;
         queue = [];
-        var i = -1;
-        while (++i < len) {
-            currentQueue[i]();
+        while (++queueIndex < len) {
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
         }
+        queueIndex = -1;
         len = queue.length;
     }
+    currentQueue = null;
     draining = false;
+    runClearTimeout(timeout);
 }
+
 process.nextTick = function (fun) {
-    queue.push(fun);
-    if (!draining) {
-        setTimeout(drainQueue, 0);
+    var args = new Array(arguments.length - 1);
+    if (arguments.length > 1) {
+        for (var i = 1; i < arguments.length; i++) {
+            args[i - 1] = arguments[i];
+        }
+    }
+    queue.push(new Item(fun, args));
+    if (queue.length === 1 && !draining) {
+        runTimeout(drainQueue);
     }
 };
 
+// v8 likes predictible objects
+function Item(fun, array) {
+    this.fun = fun;
+    this.array = array;
+}
+Item.prototype.run = function () {
+    this.fun.apply(null, this.array);
+};
 process.title = 'browser';
 process.browser = true;
 process.env = {};
 process.argv = [];
 process.version = ''; // empty string to avoid regexp issues
+process.versions = {};
 
 function noop() {}
 
@@ -63,12 +187,15 @@ process.off = noop;
 process.removeListener = noop;
 process.removeAllListeners = noop;
 process.emit = noop;
+process.prependListener = noop;
+process.prependOnceListener = noop;
+
+process.listeners = function (name) { return [] }
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
 };
 
-// TODO(shtylman)
 process.cwd = function () { return '/' };
 process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
@@ -76,13 +203,13 @@ process.chdir = function (dir) {
 process.umask = function() { return 0; };
 
 },{}],3:[function(require,module,exports){
-(function (process){
+(function (process,global){
 /*!
  * @overview RSVP - a tiny implementation of Promises/A+.
  * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors
  * @license   Licensed under MIT license
  *            See https://raw.githubusercontent.com/tildeio/rsvp.js/master/LICENSE
- * @version   3.0.17
+ * @version   3.0.21
  */
 
 (function() {
@@ -212,6 +339,10 @@ process.umask = function() { return 0; };
         @param {Function} callback function to be called when the event is triggered.
       */
       'on': function(eventName, callback) {
+        if (typeof callback !== 'function') {
+          throw new TypeError('Callback must be a function');
+        }
+
         var allCallbacks = lib$rsvp$events$$callbacksFor(this), callbacks;
 
         callbacks = allCallbacks[eventName];
@@ -306,7 +437,7 @@ process.umask = function() { return 0; };
         @for RSVP.EventTarget
         @private
         @param {String} eventName name of the event to be triggered
-        @param {Any} options optional value to be passed to any event handlers for
+        @param {*} options optional value to be passed to any event handlers for
         the given `eventName`
       */
       'trigger': function(eventName, options) {
@@ -369,19 +500,19 @@ process.umask = function() { return 0; };
 
     function lib$rsvp$instrument$$instrument(eventName, promise, child) {
       if (1 === lib$rsvp$instrument$$queue.push({
-          name: eventName,
-          payload: {
-            key: promise._guidKey,
-            id:  promise._id,
-            eventName: eventName,
-            detail: promise._result,
-            childId: child && child._id,
-            label: promise._label,
-            timeStamp: lib$rsvp$utils$$now(),
-            error: lib$rsvp$config$$config["instrument-with-stack"] ? new Error(promise._label) : null
-          }})) {
-            lib$rsvp$instrument$$scheduleFlush();
-          }
+        name: eventName,
+        payload: {
+          key: promise._guidKey,
+          id:  promise._id,
+          eventName: eventName,
+          detail: promise._result,
+          childId: child && child._id,
+          label: promise._label,
+          timeStamp: lib$rsvp$utils$$now(),
+          error: lib$rsvp$config$$config["instrument-with-stack"] ? new Error(promise._label) : null
+        }})) {
+          lib$rsvp$instrument$$scheduleFlush();
+        }
       }
     var lib$rsvp$instrument$$default = lib$rsvp$instrument$$instrument;
 
@@ -634,7 +765,7 @@ process.umask = function() { return 0; };
           value: value
         };
       } else {
-        return {
+         return {
           state: 'rejected',
           reason: value
         };
@@ -642,28 +773,30 @@ process.umask = function() { return 0; };
     }
 
     function lib$rsvp$enumerator$$Enumerator(Constructor, input, abortOnReject, label) {
-      this._instanceConstructor = Constructor;
-      this.promise = new Constructor(lib$rsvp$$internal$$noop, label);
-      this._abortOnReject = abortOnReject;
+      var enumerator = this;
 
-      if (this._validateInput(input)) {
-        this._input     = input;
-        this.length     = input.length;
-        this._remaining = input.length;
+      enumerator._instanceConstructor = Constructor;
+      enumerator.promise = new Constructor(lib$rsvp$$internal$$noop, label);
+      enumerator._abortOnReject = abortOnReject;
 
-        this._init();
+      if (enumerator._validateInput(input)) {
+        enumerator._input     = input;
+        enumerator.length     = input.length;
+        enumerator._remaining = input.length;
 
-        if (this.length === 0) {
-          lib$rsvp$$internal$$fulfill(this.promise, this._result);
+        enumerator._init();
+
+        if (enumerator.length === 0) {
+          lib$rsvp$$internal$$fulfill(enumerator.promise, enumerator._result);
         } else {
-          this.length = this.length || 0;
-          this._enumerate();
-          if (this._remaining === 0) {
-            lib$rsvp$$internal$$fulfill(this.promise, this._result);
+          enumerator.length = enumerator.length || 0;
+          enumerator._enumerate();
+          if (enumerator._remaining === 0) {
+            lib$rsvp$$internal$$fulfill(enumerator.promise, enumerator._result);
           }
         }
       } else {
-        lib$rsvp$$internal$$reject(this.promise, this._validationError());
+        lib$rsvp$$internal$$reject(enumerator.promise, enumerator._validationError());
       }
     }
 
@@ -682,45 +815,48 @@ process.umask = function() { return 0; };
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._enumerate = function() {
-      var length  = this.length;
-      var promise = this.promise;
-      var input   = this._input;
+      var enumerator = this;
+      var length     = enumerator.length;
+      var promise    = enumerator.promise;
+      var input      = enumerator._input;
 
       for (var i = 0; promise._state === lib$rsvp$$internal$$PENDING && i < length; i++) {
-        this._eachEntry(input[i], i);
+        enumerator._eachEntry(input[i], i);
       }
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._eachEntry = function(entry, i) {
-      var c = this._instanceConstructor;
+      var enumerator = this;
+      var c = enumerator._instanceConstructor;
       if (lib$rsvp$utils$$isMaybeThenable(entry)) {
         if (entry.constructor === c && entry._state !== lib$rsvp$$internal$$PENDING) {
           entry._onError = null;
-          this._settledAt(entry._state, i, entry._result);
+          enumerator._settledAt(entry._state, i, entry._result);
         } else {
-          this._willSettleAt(c.resolve(entry), i);
+          enumerator._willSettleAt(c.resolve(entry), i);
         }
       } else {
-        this._remaining--;
-        this._result[i] = this._makeResult(lib$rsvp$$internal$$FULFILLED, i, entry);
+        enumerator._remaining--;
+        enumerator._result[i] = enumerator._makeResult(lib$rsvp$$internal$$FULFILLED, i, entry);
       }
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._settledAt = function(state, i, value) {
-      var promise = this.promise;
+      var enumerator = this;
+      var promise = enumerator.promise;
 
       if (promise._state === lib$rsvp$$internal$$PENDING) {
-        this._remaining--;
+        enumerator._remaining--;
 
-        if (this._abortOnReject && state === lib$rsvp$$internal$$REJECTED) {
+        if (enumerator._abortOnReject && state === lib$rsvp$$internal$$REJECTED) {
           lib$rsvp$$internal$$reject(promise, value);
         } else {
-          this._result[i] = this._makeResult(state, i, value);
+          enumerator._result[i] = enumerator._makeResult(state, i, value);
         }
       }
 
-      if (this._remaining === 0) {
-        lib$rsvp$$internal$$fulfill(promise, this._result);
+      if (enumerator._remaining === 0) {
+        lib$rsvp$$internal$$fulfill(promise, enumerator._result);
       }
     };
 
@@ -802,119 +938,17 @@ process.umask = function() { return 0; };
       throw new TypeError("Failed to construct 'Promise': Please use the 'new' operator, this object constructor cannot be called as a function.");
     }
 
-    /**
-      Promise objects represent the eventual result of an asynchronous operation. The
-      primary way of interacting with a promise is through its `then` method, which
-      registers callbacks to receive either a promise’s eventual value or the reason
-      why the promise cannot be fulfilled.
-
-      Terminology
-      -----------
-
-      - `promise` is an object or function with a `then` method whose behavior conforms to this specification.
-      - `thenable` is an object or function that defines a `then` method.
-      - `value` is any legal JavaScript value (including undefined, a thenable, or a promise).
-      - `exception` is a value that is thrown using the throw statement.
-      - `reason` is a value that indicates why a promise was rejected.
-      - `settled` the final resting state of a promise, fulfilled or rejected.
-
-      A promise can be in one of three states: pending, fulfilled, or rejected.
-
-      Promises that are fulfilled have a fulfillment value and are in the fulfilled
-      state.  Promises that are rejected have a rejection reason and are in the
-      rejected state.  A fulfillment value is never a thenable.
-
-      Promises can also be said to *resolve* a value.  If this value is also a
-      promise, then the original promise's settled state will match the value's
-      settled state.  So a promise that *resolves* a promise that rejects will
-      itself reject, and a promise that *resolves* a promise that fulfills will
-      itself fulfill.
-
-
-      Basic Usage:
-      ------------
-
-      ```js
-      var promise = new Promise(function(resolve, reject) {
-        // on success
-        resolve(value);
-
-        // on failure
-        reject(reason);
-      });
-
-      promise.then(function(value) {
-        // on fulfillment
-      }, function(reason) {
-        // on rejection
-      });
-      ```
-
-      Advanced Usage:
-      ---------------
-
-      Promises shine when abstracting away asynchronous interactions such as
-      `XMLHttpRequest`s.
-
-      ```js
-      function getJSON(url) {
-        return new Promise(function(resolve, reject){
-          var xhr = new XMLHttpRequest();
-
-          xhr.open('GET', url);
-          xhr.onreadystatechange = handler;
-          xhr.responseType = 'json';
-          xhr.setRequestHeader('Accept', 'application/json');
-          xhr.send();
-
-          function handler() {
-            if (this.readyState === this.DONE) {
-              if (this.status === 200) {
-                resolve(this.response);
-              } else {
-                reject(new Error('getJSON: `' + url + '` failed with status: [' + this.status + ']'));
-              }
-            }
-          };
-        });
-      }
-
-      getJSON('/posts.json').then(function(json) {
-        // on fulfillment
-      }, function(reason) {
-        // on rejection
-      });
-      ```
-
-      Unlike callbacks, promises are great composable primitives.
-
-      ```js
-      Promise.all([
-        getJSON('/posts'),
-        getJSON('/comments')
-      ]).then(function(values){
-        values[0] // => postsJSON
-        values[1] // => commentsJSON
-
-        return values;
-      });
-      ```
-
-      @class RSVP.Promise
-      @param {function} resolver
-      @param {String} label optional string for labeling the promise.
-      Useful for tooling.
-      @constructor
-    */
     function lib$rsvp$promise$$Promise(resolver, label) {
-      this._id = lib$rsvp$promise$$counter++;
-      this._label = label;
-      this._state = undefined;
-      this._result = undefined;
-      this._subscribers = [];
+      var promise = this;
+
+      promise._id = lib$rsvp$promise$$counter++;
+      promise._label = label;
+      promise._state = undefined;
+      promise._result = undefined;
+      promise._subscribers = [];
 
       if (lib$rsvp$config$$config.instrument) {
-        lib$rsvp$instrument$$default('created', this);
+        lib$rsvp$instrument$$default('created', promise);
       }
 
       if (lib$rsvp$$internal$$noop !== resolver) {
@@ -922,11 +956,11 @@ process.umask = function() { return 0; };
           lib$rsvp$promise$$needsResolver();
         }
 
-        if (!(this instanceof lib$rsvp$promise$$Promise)) {
+        if (!(promise instanceof lib$rsvp$promise$$Promise)) {
           lib$rsvp$promise$$needsNew();
         }
 
-        lib$rsvp$$internal$$initializePromise(this, resolver);
+        lib$rsvp$$internal$$initializePromise(promise, resolver);
       }
     }
 
@@ -945,13 +979,12 @@ process.umask = function() { return 0; };
       _guidKey: lib$rsvp$promise$$guidKey,
 
       _onError: function (reason) {
-        lib$rsvp$config$$config.async(function(promise) {
-          setTimeout(function() {
-            if (promise._onError) {
-              lib$rsvp$config$$config['trigger']('error', reason);
-            }
-          }, 0);
-        }, this);
+        var promise = this;
+        lib$rsvp$config$$config.after(function() {
+          if (promise._onError) {
+            lib$rsvp$config$$config['trigger']('error', reason);
+          }
+        });
       },
 
     /**
@@ -1142,8 +1175,8 @@ process.umask = function() { return 0; };
       ```
 
       @method then
-      @param {Function} onFulfilled
-      @param {Function} onRejected
+      @param {Function} onFulfillment
+      @param {Function} onRejection
       @param {String} label optional string for labeling the promise.
       Useful for tooling.
       @return {Promise}
@@ -1154,14 +1187,14 @@ process.umask = function() { return 0; };
 
         if (state === lib$rsvp$$internal$$FULFILLED && !onFulfillment || state === lib$rsvp$$internal$$REJECTED && !onRejection) {
           if (lib$rsvp$config$$config.instrument) {
-            lib$rsvp$instrument$$default('chained', this, this);
+            lib$rsvp$instrument$$default('chained', parent, parent);
           }
-          return this;
+          return parent;
         }
 
         parent._onError = null;
 
-        var child = new this.constructor(lib$rsvp$$internal$$noop, label);
+        var child = new parent.constructor(lib$rsvp$$internal$$noop, label);
         var result = parent._result;
 
         if (lib$rsvp$config$$config.instrument) {
@@ -1209,7 +1242,7 @@ process.umask = function() { return 0; };
       @return {Promise}
     */
       'catch': function(onRejection, label) {
-        return this.then(null, onRejection, label);
+        return this.then(undefined, onRejection, label);
       },
 
     /**
@@ -1253,9 +1286,10 @@ process.umask = function() { return 0; };
       @return {Promise}
     */
       'finally': function(callback, label) {
-        var constructor = this.constructor;
+        var promise = this;
+        var constructor = promise.constructor;
 
-        return this.then(function(value) {
+        return promise.then(function(value) {
           return constructor.resolve(callback()).then(function(){
             return value;
           });
@@ -1306,7 +1340,8 @@ process.umask = function() { return 0; };
     var lib$rsvp$asap$$browserWindow = (typeof window !== 'undefined') ? window : undefined;
     var lib$rsvp$asap$$browserGlobal = lib$rsvp$asap$$browserWindow || {};
     var lib$rsvp$asap$$BrowserMutationObserver = lib$rsvp$asap$$browserGlobal.MutationObserver || lib$rsvp$asap$$browserGlobal.WebKitMutationObserver;
-    var lib$rsvp$asap$$isNode = typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
+    var lib$rsvp$asap$$isNode = typeof self === 'undefined' &&
+      typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
 
     // test for web worker but not in IE10
     var lib$rsvp$asap$$isWorker = typeof Uint8ClampedArray !== 'undefined' &&
@@ -1400,7 +1435,7 @@ process.umask = function() { return 0; };
       lib$rsvp$asap$$scheduleFlush = lib$rsvp$asap$$useSetTimeout();
     }
     function lib$rsvp$defer$$defer(label) {
-      var deferred = { };
+      var deferred = {};
 
       deferred['promise'] = new lib$rsvp$promise$$default(function(resolve, reject) {
         deferred['resolve'] = resolve;
@@ -1463,12 +1498,13 @@ process.umask = function() { return 0; };
     };
 
     lib$rsvp$promise$hash$$PromiseHash.prototype._enumerate = function() {
-      var promise = this.promise;
-      var input   = this._input;
-      var results = [];
+      var enumerator = this;
+      var promise    = enumerator.promise;
+      var input      = enumerator._input;
+      var results    = [];
 
       for (var key in input) {
-        if (promise._state === lib$rsvp$$internal$$PENDING && input.hasOwnProperty(key)) {
+        if (promise._state === lib$rsvp$$internal$$PENDING && Object.prototype.hasOwnProperty.call(input, key)) {
           results.push({
             position: key,
             entry: input[key]
@@ -1477,12 +1513,12 @@ process.umask = function() { return 0; };
       }
 
       var length = results.length;
-      this._remaining = length;
+      enumerator._remaining = length;
       var result;
 
       for (var i = 0; promise._state === lib$rsvp$$internal$$PENDING && i < length; i++) {
         result = results[i];
-        this._eachEntry(result.entry, result.position);
+        enumerator._eachEntry(result.entry, result.position);
       }
     };
 
@@ -1671,6 +1707,20 @@ process.umask = function() { return 0; };
         return false;
       }
     }
+    var lib$rsvp$platform$$platform;
+
+    /* global self */
+    if (typeof self === 'object') {
+      lib$rsvp$platform$$platform = self;
+
+    /* global global */
+    } else if (typeof global === 'object') {
+      lib$rsvp$platform$$platform = global;
+    } else {
+      throw new Error('no global: `self` or `global` found');
+    }
+
+    var lib$rsvp$platform$$default = lib$rsvp$platform$$platform;
     function lib$rsvp$race$$race(array, label) {
       return lib$rsvp$promise$$default.race(array, label);
     }
@@ -1691,8 +1741,11 @@ process.umask = function() { return 0; };
     }
     var lib$rsvp$rethrow$$default = lib$rsvp$rethrow$$rethrow;
 
-    // default async is asap;
+    // defaults
     lib$rsvp$config$$config.async = lib$rsvp$asap$$default;
+    lib$rsvp$config$$config.after = function(cb) {
+      setTimeout(cb, 0);
+    };
     var lib$rsvp$$cast = lib$rsvp$resolve$$default;
     function lib$rsvp$$async(callback, arg) {
       lib$rsvp$config$$config.async(callback, arg);
@@ -1743,13 +1796,13 @@ process.umask = function() { return 0; };
       define(function() { return lib$rsvp$umd$$RSVP; });
     } else if (typeof module !== 'undefined' && module['exports']) {
       module['exports'] = lib$rsvp$umd$$RSVP;
-    } else if (typeof this !== 'undefined') {
-      this['RSVP'] = lib$rsvp$umd$$RSVP;
+    } else if (typeof lib$rsvp$platform$$default !== 'undefined') {
+      lib$rsvp$platform$$default['RSVP'] = lib$rsvp$umd$$RSVP;
     }
 }).call(this);
 
 
-}).call(this,require('_process'))
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"_process":2}],4:[function(require,module,exports){
 'use strict';
 
@@ -1759,11 +1812,9 @@ var AudioRecorder   = require('./util/audio-recorder');
 var CallbackManager = require('./util/callback-manager');
 var getMicrophone   = require('./util/get-microphone');
 
-
 //Constructor
 function Sphinx(path_to_workers){
   this.path_to_workers = path_to_workers || './worker';
-
   this._callbackManager = new CallbackManager();
   this.recorder         = this._startRecorder();
   this.recognizer       = this._startRecognizer();

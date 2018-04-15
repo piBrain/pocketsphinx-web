@@ -1,6 +1,5 @@
 'use strict';
 
-var self = this.self;
 var recBuffers = [], outputSampleRate = 16000, inSampleRate, outputBufferLength;
 
 this.onmessage = function(e){

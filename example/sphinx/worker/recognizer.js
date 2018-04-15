@@ -1,8 +1,5 @@
 /* global importScripts, Module */
 'use strict';
-
-var self = this.self;
-
 function startup(onMessage) {
   self.onmessage = function(event) {
     var pocketsphinxJS = (event.data && event.data.length && (event.data.length > 0)) ? event.data : './pocketsphinx.js';
@@ -203,6 +200,8 @@ function stop() {
 }
 
 function process(array) {
+    console.log(array)
+    console.log(buffer)
   if (recognizer) {
     while (buffer.size() < array.length){
       buffer.push_back(0);

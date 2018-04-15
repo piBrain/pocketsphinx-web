@@ -1,8 +1,5 @@
 /* global importScripts, Module */
 'use strict';
-
-var self = this.self;
-
 function startup(onMessage) {
   self.onmessage = function(event) {
     var pocketsphinxJS = (event.data && event.data.length && (event.data.length > 0)) ? event.data : './pocketsphinx.js';
@@ -38,6 +35,9 @@ startup(function(event) {
       break;
     case 'process':
       process(event.data.data);
+      break;
+    case 'proccessBufer':
+      processBuffer(event.data.data, event.data.buffer)
       break;
     }
 });
@@ -203,6 +203,28 @@ function stop() {
 }
 
 function process(array) {
+  if (recognizer) {
+    while (buffer.size() < array.length){
+      buffer.push_back(0);
+    }
+    for (var i = 0 ; i < array.length ; i++){
+      buffer.set(i, array[i]);
+    }
+    var output = recognizer.process(buffer);
+    if (output !== Module.ReturnType.SUCCESS){
+      post({status: 'error', command: 'process', code: output});
+    } else {
+      recognizer.getHypseg(segmentation);
+      post({
+        hyp: recognizer.getHyp(),
+        hypseg: segmentation
+      });
+    }
+  } else {
+    post({status: 'error', command: 'process', code: 'js-no-recognizer'});
+  }
+}
+function processBuffer(array, buffer) {
   if (recognizer) {
     while (buffer.size() < array.length){
       buffer.push_back(0);
