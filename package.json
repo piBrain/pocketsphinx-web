@@ -15,8 +15,7 @@
   "license": "MIT",
   "dependencies": {
     "browserify-fs": "^1.0.0",
-    "resolve": "^1.7.1",
-    "rsvp": "~3.0.17"
+    "resolve": "^1.7.1"
   },
   "devDependencies": {
     "browserify": "^16.2.0",

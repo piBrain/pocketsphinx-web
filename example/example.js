@@ -30,7 +30,6 @@
       //Inside this callback, sphinx is now ready and listening for cities
       console.log('READY');
     });
-
   //Set a callback for when sphinx has recognized a new word or phrase
   sphinx.onrecognition = function(event){
     console.log(event.data);
