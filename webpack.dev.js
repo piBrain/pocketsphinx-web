@@ -2,7 +2,7 @@ const merge = require('webpack-merge')
 const common = require('./webpack.common.js')
 var path = require('path');
 
-var BUILD_DIR = path.resolve(__dirname, 'example');
+var BUILD_DIR = path.resolve(__dirname, 'dev');
 module.exports = merge(common, {
     devtool: 'inline-source-maps',
     devServer: {
