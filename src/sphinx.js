@@ -4,13 +4,12 @@
 var AudioRecorder   = require('./util/audio-recorder');
 var CallbackManager = require('./util/callback-manager');
 var getMicrophone   = require('./util/get-microphone');
-
+var recogWorker     = require('./worker/recognizer.worker.js')
 //Constructor
-function Sphinx(path_to_workers){
-  this.path_to_workers = path_to_workers || './worker';
-  this._callbackManager = new CallbackManager();
-  this.recorder         = this._startRecorder();
-  this.recognizer       = this._startRecognizer();
+function Sphinx(){
+    this._callbackManager = new CallbackManager();
+    this.recorder         = this._startRecorder();
+    this.recognizer       = this._startRecognizer();
 }
 //Control
 Sphinx.prototype.startRecording = function(grammar_id){
@@ -85,19 +84,18 @@ Sphinx.prototype.configure = function(words, grammar){
 
 
 Sphinx.prototype._startRecorder   = function(){
-  var path_to_workers = this.path_to_workers;
   return getMicrophone()
     .then((input) => {
       // Once the user authorises access to the microphone, we instantiate the recorder
       return new AudioRecorder(input, {
-        worker:        path_to_workers + '/audio-recorder-worker.js',
         errorCallback: function() { /* ??? */ }
       });
     });
 
 };
 Sphinx.prototype._startRecognizer = function(){
-    const worker = new Worker(this.path_to_workers + '/recognizer.js');
+    const worker = new recogWorker();
+    //Not rebuilding
     const promise = new Promise((resolve, reject) => {
         worker.onmessage = function() {
             resolve(worker);

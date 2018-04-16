@@ -1,18 +1,16 @@
 'use strict';
-
-var AUDIO_RECORDER_WORKER = '/worker/audio-recorder-worker.js';
+var recordWorker = require('../worker/audio-recorder.worker.js')
 
 var AudioRecorder = function(source, cfg) {
   var config             = cfg || {};
   var errorCallback      = config.errorCallback || function() {};
   var inputBufferLength  = config.inputBufferLength || 4096;
   var outputBufferLength = config.outputBufferLength || 4000;
-  var worker             = new Worker(config.worker || AUDIO_RECORDER_WORKER);
+  var worker             = new recordWorker()
 
   this.consumers = [];
   this.context   = source.context;
   this.node      = this.context.createScriptProcessor(inputBufferLength);
-
   worker.postMessage({
     command: 'init',
     config: {
